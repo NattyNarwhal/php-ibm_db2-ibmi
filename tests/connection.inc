@@ -1,8 +1,8 @@
 <?php
 
-$database = 'sample';
-$user = 'db2inst1';
-$password = 'password';
+$database = '*LOCAL';
+$user = '';
+$password = '';
 $hostname = 'localhost';
 $port = 60000;
 $url = 'no url';

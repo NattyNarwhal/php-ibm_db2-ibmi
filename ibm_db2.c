@@ -612,13 +612,14 @@ SQLRETURN _php_db2_override_SQLSetConnectAttr(
 {
     int rc = SQL_ERROR;
     SQLPOINTER pvParam = vParam;
+    int iParam = (SQLINTEGER)(intptr_t)vParam;
     /* IBM i requires pointer to value; 
      * LUW supports raw integer (SQL_IS_INTEGER) or pointer (SQL_NTS) 
      */
-    // attr located intentionally outside the 'if' scope to survive SQLSetConnectAttr
-    int attr = (int)(intptr_t)vParam;
-    if (fStrLen != SQL_NTS) {
-        pvParam = &attr;
+    if (fStrLen == SQL_IS_INTEGER) {
+        pvParam = &iParam;
+    } else if (fStrLen != SQL_NTS) {
+        pvParam = &vParam;
     }
     rc = SQLSetConnectAttr(hdbc, fOption, pvParam, fStrLen);
     return rc;
@@ -631,13 +632,14 @@ SQLRETURN _php_db2_override_SQLSetStmtAttr(
 {
     int rc = SQL_ERROR;
     SQLPOINTER pvParam = vParam;
+    int iParam = (SQLINTEGER)(intptr_t)vParam;
     /* IBM i requires pointer to value; 
      * LUW supports raw integer (SQL_IS_INTEGER) or pointer (SQL_NTS) 
      */
-    // attr located intentionally outside the 'if' scope to survive SQLSetConnectAttr
-    int attr = (int)(intptr_t)vParam;
-    if (fStrLen != SQL_NTS) {
-        pvParam = &attr;
+    if (fStrLen == SQL_IS_INTEGER) {
+        pvParam = &iParam;
+    } else if (fStrLen != SQL_NTS) {
+        pvParam = &vParam;
     }
     rc = SQLSetStmtAttr(hstmt, fOption, pvParam, fStrLen);
     return rc;
@@ -650,13 +652,14 @@ SQLRETURN _php_db2_override_SQLSetEnvAttr(
 {
     int rc = SQL_ERROR;
     SQLPOINTER pvParam = vParam;
+    int iParam = (SQLINTEGER)(intptr_t)vParam;
     /* IBM i requires pointer to value; 
      * LUW supports raw integer (SQL_IS_INTEGER) or pointer (SQL_NTS) 
      */
-    // attr located intentionally outside the 'if' scope to survive SQLSetConnectAttr
-    int attr = (int)(intptr_t)vParam;
-    if (fStrLen != SQL_NTS) {
-        pvParam = &attr;
+    if (fStrLen == SQL_IS_INTEGER) {
+        pvParam = &iParam;
+    } else if (fStrLen != SQL_NTS) {
+        pvParam = &vParam;
     }
     rc = SQLSetEnvAttr(henv, fOption, pvParam, fStrLen);
     return rc;
@@ -2493,7 +2496,7 @@ static int _php_db2_i5_current_user(conn_handle *conn_res, char *uid, int uid_le
     SQLINTEGER fStrLen = SQL_NTS;
 
     if (!conn_res || !uid || uid_len < 10) {
-        return;
+        return SQL_ERROR; /* not really from CLI, but... */
     }
 
     _php_db2_clear_stmt_err_cache(TSRMLS_C);
@@ -2559,7 +2562,7 @@ static int _php_db2_connect_helper( INTERNAL_FUNCTION_PARAMETERS, conn_handle **
     int hKeyLen = 0;
     char *hKey = NULL;
     char server[2048];
-    long attr = SQL_TRUE;
+    int attr = SQL_TRUE;
 #if PHP_MAJOR_VERSION >= 7
     size_t database_len;
     size_t uid_len;
@@ -2585,8 +2588,9 @@ static int _php_db2_connect_helper( INTERNAL_FUNCTION_PARAMETERS, conn_handle **
     SQLINTEGER try_date_len = SQL_NTS;
     char guard_uid[DB2_IBM_I_PROFILE_UID_MAX + 1];
     SQLINTEGER try_auto = 0;
-#endif /* PASE */
+#else
     struct sqlca sqlca;
+#endif /* PASE */
 
     conn_alive = 1;
 
@@ -3206,7 +3210,15 @@ static void _php_db2_add_param_cache( stmt_handle *stmt_res, int param_no, char 
         tmp_curr = (param_node *)ecalloc(1, sizeof(param_node));
         /* assign values */
         tmp_curr->data_type = data_type;
+#ifdef PASE
+       /*
+        * HACK: A bigint test fails with truncation because DescribeParam
+        * returns a precision of 8, which isn't accurate. (CB 20200423)
+        */
+        tmp_curr->param_size = data_type == SQL_BIGINT ? 20 : precision;
+#else
         tmp_curr->param_size = precision;
+#endif
         tmp_curr->nullable = nullable;
         tmp_curr->scale = scale;
         tmp_curr->param_num = param_no;
@@ -3237,7 +3249,11 @@ static void _php_db2_add_param_cache( stmt_handle *stmt_res, int param_no, char 
         /* Both the nodes are for the same param no */
         /* Replace Information */
         curr->data_type = data_type;
+#ifdef PASE
+        curr->param_size = data_type == SQL_BIGINT ? 20 : precision;
+#else
         curr->param_size = precision;
+#endif
         curr->nullable = nullable;
         curr->scale = scale;
         curr->param_num = param_no;
@@ -4491,7 +4507,11 @@ static param_node* _php_db2_build_list( stmt_handle *stmt_res, int param_no, SQL
     tmp_curr = (param_node *)ecalloc(1, sizeof(param_node));
     /* assign values */
     tmp_curr->data_type = data_type;
+#ifdef PASE
+    tmp_curr->param_size = data_type == SQL_BIGINT ? 20 : precision;
+#else
     tmp_curr->param_size = precision;
+#endif
     tmp_curr->nullable = nullable;
     tmp_curr->scale = scale;
     tmp_curr->param_num = param_no;
@@ -4680,6 +4700,17 @@ static int _php_db2_bind_pad(param_node *curr, int nullterm, int isvarying, int 
 
     /* other fix up types */
     switch ( curr->data_type ) {
+        /*
+         * CB 20200505: Seems unnecessary and causes test failures in
+         * test_V6_148_CallSPDiffBindPattern_01 and
+         * test_V6_149_CallSPDiffBindPattern_02. I don't know if this
+         * vestigal (and necessary at one point), an incorrect fix, or
+         * legitimate with an unknown test case/unfixed other cases.
+         * The commit that added it added thousands of lines with an
+         * explanation of something completely unrelated, so...
+         * If needed, it can be brought back.
+         */
+#if 0
         /* BIGINT<implicit>CHAR works consistently if 0x30 pad left, 
          * '2' becomes '000000000000000000002'
          */
@@ -4707,6 +4738,7 @@ static int _php_db2_bind_pad(param_node *curr, int nullterm, int isvarying, int 
                 back--;
             }
             break;
+#endif
         default:
             break;
     }

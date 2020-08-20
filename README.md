@@ -7,16 +7,20 @@ This code is only to be compiled and run on IBM i and offers no guaranteed compa
 ## Prerequisites
 
 You will need PHP installed, as well as some key development tools:
+
 ```
-yum install make-gnu gcc
+yum install make-gnu gcc sqlcli-devel
 ```
+
 To get started with IBM i RPMs, see http://ibm.biz/ibmi-rpms
 
-## How to run sample program
+Tony Cairns' [replacement libdb400](https://bitbucket.org/litmis/db2sock/src/master/db2/) is not yet tested, but may be desirable due to its greater debugging features.
 
-### connect.php:-
+### How to run the sample program
 
-```
+#### connect.php
+
+```php
 <?php
 $database = 'dsn name';
 $user = 'user';
@@ -33,7 +37,7 @@ else {
 ?>
 
 ```
-To run the sample:- php connect.php
+To run the sample: `php connect.php`
 
 ## Contributing:
 ```
